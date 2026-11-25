@@ -30,6 +30,7 @@ jobs:
       - name: Test the draft-PR workflow against a local Git repository
         run: python3 tests/proposal.py
       - run: python3 tests/releases.py
+      - run: python3 tests/publish.py
       - id: pin
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,6 +44,27 @@ jobs:
     with:
       tag: ${{ needs.select.outputs.tag }}
       commit: ${{ needs.select.outputs.commit }}
+
+  publish:
+    name: Publish the public-default firmware
+    needs: [select, pinned]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.pinned.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Download and publish the verified application
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ needs.select.outputs.tag }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "v3-pocket-$UPSTREAM_TAG" --dir "$RUNNER_TEMP/release"
+          python3 .github/publish.py "$RUNNER_TEMP/release"
 
   updates:
     needs: select

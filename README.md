@@ -2,6 +2,18 @@
 
 A pocket-sized status display for a MeshCore repeater running on the **Heltec WiFi LoRa 32 V3** (ESP32-S3, SX1262, 128 × 64 SSD1306 OLED). Home shows recent packet activity, last heard, RX/TX totals and battery voltage. The PRG button opens a nearby repeater list. The firmware uses the identity and radio settings already stored on the node.
 
+<a id="install-an-update"></a>
+
+## Quick start
+
+Download the **`-app.bin`** and `manifest.json` from the [latest V3 Pocket release](https://github.com/benaltair/v3-pocket/releases/latest). Compare the file’s SHA-256 with the manifest before installation.
+
+1. Start with a Heltec WiFi LoRa 32 V3 already running a MeshCore **repeater**, with the compatible 8 MB dual-OTA partition layout. Back up that node’s identity and settings privately.
+2. In MeshCore’s repeater admin CLI, run `start ota`. Join the `MeshCore-OTA` Wi-Fi network, open the update address returned by the repeater, and select **Firmware** and the application `.bin`.
+3. After reboot, check `ver`, the node name, public identity and radio settings. Tap PRG to open Repeaters. The app image is for a firmware partition. Writing it at address zero or erasing the chip would overwrite other data.
+
+The initial release is based on MeshCore `repeater-v1.17.1`. This Pocket UI revision was tested on a physical V3. The screen previews use simulated readings. [Upstream repeater commands](https://github.com/meshcore-dev/MeshCore/blob/d92964352441e53b93e8667b802e04f6e072b39e/docs/cli_commands.md#start-an-over-the-air-ota-firmware-update)
+
 ## The packet graph
 
 ![Two OLED Home screens with simulated traffic. The quiet graph is blank. Bars on the busy graph show when packets arrived.](docs/traffic.png)
@@ -22,16 +34,6 @@ Repeaters initially shows recent direct repeater adverts. A scan first shows the
 
 ![Six firmware renders showing Home, the nearby page, queued and listening states, four ranked results and the cooldown. All names and measurements are examples.](docs/screens.png)
 
-## Install an update
-
-Download the application `.bin` and `manifest.json` from [Releases](https://github.com/benaltair/v3-pocket/releases). Compare the file’s SHA-256 with the manifest before installation.
-
-1. Start with a Heltec WiFi LoRa 32 V3 already running a MeshCore **repeater**, with the compatible 8 MB dual-OTA partition layout. Back up that node’s identity and settings privately.
-2. In MeshCore’s repeater admin CLI, run `start ota`. Join the `MeshCore-OTA` Wi-Fi network, open the update address returned by the repeater, and select **Firmware** and the application `.bin`.
-3. After reboot, check `ver`, the node name, public identity and radio settings. Tap PRG to open Repeaters. The app image is for a firmware partition. Writing it at address zero or erasing the chip would overwrite other data.
-
-The initial release is based on MeshCore `repeater-v1.17.1`. This Pocket UI revision was tested on a physical V3. The screen previews use simulated readings. [Upstream repeater commands](https://github.com/meshcore-dev/MeshCore/blob/d92964352441e53b93e8667b802e04f6e072b39e/docs/cli_commands.md#start-an-over-the-air-ota-firmware-update)
-
 ## Build from source
 
 Use Python 3.9+, Git and a C++11 compiler. Install PlatformIO Core in your Python environment for the firmware build. Run from this repository’s root.
@@ -48,8 +50,12 @@ To regenerate the screenshots, install Pillow and run `python3 update.py --previ
 
 ## Following MeshCore repeater releases
 
-GitHub Actions checks published [MeshCore releases](https://github.com/meshcore-dev/MeshCore/releases) daily at **09:17 UTC** and on manual dispatch. Each new stable `repeater-vX.Y.Z` release gets its own build, tests and **draft PR** proposing the exact upstream commit. A failed port also opens a draft with its test result. Previously opened or closed proposals are skipped. Only a maintainer’s merge changes the reviewed pin. Publishing a downloadable release is a separate action.
+GitHub Actions checks published [MeshCore releases](https://github.com/meshcore-dev/MeshCore/releases) daily at **09:17 UTC** and on manual dispatch. Each new stable `repeater-vX.Y.Z` release gets its own build, tests and **draft PR** proposing the exact upstream commit. A failed port also opens a draft with its test result. Previously opened or closed proposals are skipped. Merging the draft to `main` runs the reviewed build again. When it passes, GitHub Releases publishes the new default application and its checksum manifest. Rebuilding an existing version keeps its original release assets. If you change firmware code against the same MeshCore release, bump `UI_REVISION` in `update.py` to give the binary a new version.
 
 For a fork, enable Actions and allow GitHub Actions to create pull requests in repository settings. Set the optional Actions variable `V3_REVIEWER` to the GitHub login that should review proposals. The public build uses upstream board defaults. Set a new repeater’s own identity, admin access and region on the device.
+
+## Make it your own
+
+Fork the project to try a different graph, button layout or repeater board. `src/PocketTraffic.h` draws the graph, `src/PocketRepeaterUI.h` handles the pages, and `tests/test.cpp` exercises them. For another device, add a separate board target, match the display and button wiring, and check its OTA layout. Board ports, screen previews and focused PRs are welcome.
 
 The Pocket screen layout and discovery interface share conventions with [T1 Pocket](https://github.com/benaltair/t1-pocket). The overlay is MIT licensed. MeshCore and the linked board libraries retain their respective notices. [Overlay license](LICENSE) · [MeshCore license](UPSTREAM-LICENSE.txt) · [Upstream ESP32 dependencies](https://github.com/meshcore-dev/MeshCore/blob/d92964352441e53b93e8667b802e04f6e072b39e/platformio.ini)

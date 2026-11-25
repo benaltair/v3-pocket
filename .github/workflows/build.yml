@@ -30,4 +30,5 @@ jobs:
         with:
           name: v3-pocket-${{ inputs.tag }}
           path: builds/
+          retention-days: 2
           if-no-files-found: error
