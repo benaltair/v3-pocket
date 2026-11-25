@@ -1,0 +1,233 @@
+diff --git a/examples/simple_repeater/MyMesh.cpp b/examples/simple_repeater/MyMesh.cpp
+index 7d0179f..692d32b 100644
+--- a/examples/simple_repeater/MyMesh.cpp
++++ b/examples/simple_repeater/MyMesh.cpp
+@@ -1,3 +1,6 @@
++#ifdef V3_POCKET_REPEATER
++#include <PocketRepeaterEvents.h>
++#endif
+ #include "MyMesh.h"
+ #include <algorithm>
+ 
+@@ -503,6 +506,9 @@ void MyMesh::logRx(mesh::Packet *pkt, int len, float score) {
+ }
+ 
+ void MyMesh::logTx(mesh::Packet *pkt, int len) {
++#ifdef V3_POCKET_REPEATER
++  pocketTxDone(pkt, true);
++#endif
+ #ifdef WITH_BRIDGE
+   if (_prefs.bridge_pkt_src == 0) {
+     bridge.sendPacket(pkt);
+@@ -528,6 +534,9 @@ void MyMesh::logTx(mesh::Packet *pkt, int len) {
+ }
+ 
+ void MyMesh::logTxFail(mesh::Packet *pkt, int len) {
++#ifdef V3_POCKET_REPEATER
++  pocketTxDone(pkt, false);
++#endif
+   if (_logging) {
+     File f = openAppend(PACKET_LOG_FILE);
+     if (f) {
+@@ -656,6 +665,9 @@ void MyMesh::onAdvertRecv(mesh::Packet *packet, const mesh::Identity &id, uint32
+     AdvertDataParser parser(app_data, app_data_len);
+     if (parser.isValid() && parser.getType() == ADV_TYPE_REPEATER) { // just keep neigbouring Repeaters
+       putNeighbour(id, timestamp, packet->getSNR());
++#ifdef V3_POCKET_REPEATER
++      pocketHeard(id.pub_key, parser.getName(), packet->_snr);
++#endif
+     }
+   }
+ }
+@@ -787,6 +799,9 @@ bool MyMesh::onPeerPathRecv(mesh::Packet *packet, int sender_idx, const uint8_t
+ #define CTL_TYPE_NODE_DISCOVER_RESP  0x90
+ 
+ void MyMesh::onControlDataRecv(mesh::Packet* packet) {
++#ifdef V3_POCKET_REPEATER
++  pocketReceive(*packet);
++#endif
+   uint8_t type = packet->payload[0] & 0xF0;    // just test upper 4 bits
+   if (type == CTL_TYPE_NODE_DISCOVER_REQ && packet->payload_len >= 6
+       && !_prefs.disable_fwd && discover_limiter.allow(rtc_clock.getCurrentTime())
+@@ -1336,3 +1351,16 @@ bool MyMesh::hasPendingWork() const {
+ #endif
+   return _mgr->getOutboundTotal() > 0;
+ }
++
++#ifdef V3_POCKET_REPEATER
++void MyMesh::cancelPocketRequest(const mesh::Packet* expected, const uint8_t tag[4]) {
++  for (int i = 0; i < _mgr->getOutboundTotal(); ++i) {
++    auto pkt = _mgr->getOutboundByIdx(i);
++    if (pkt == expected && pkt->getPayloadType() == PAYLOAD_TYPE_CONTROL && pkt->payload_len == 6 &&
++        pkt->payload[0] == CTL_TYPE_NODE_DISCOVER_REQ && memcmp(pkt->payload + 2, tag, 4) == 0) {
++      releasePacket(_mgr->removeOutboundByIdx(i));
++      break;
++    }
++  }
++}
++#endif
+diff --git a/examples/simple_repeater/MyMesh.h b/examples/simple_repeater/MyMesh.h
+index 04bd4fb..e31216f 100644
+--- a/examples/simple_repeater/MyMesh.h
++++ b/examples/simple_repeater/MyMesh.h
+@@ -184,6 +184,9 @@ public:
+ 
+   void begin(FILESYSTEM* fs);
+   void sendNodeDiscoverReq();
++#ifdef V3_POCKET_REPEATER
++  void cancelPocketRequest(const mesh::Packet* expected, const uint8_t tag[4]);
++#endif
+   const char* getFirmwareVer() override { return FIRMWARE_VERSION; }
+   const char* getBuildDate() override { return FIRMWARE_BUILD_DATE; }
+   const char* getRole() override { return FIRMWARE_ROLE; }
+diff --git a/examples/simple_repeater/UITask.cpp b/examples/simple_repeater/UITask.cpp
+index e722555..476b706 100644
+--- a/examples/simple_repeater/UITask.cpp
++++ b/examples/simple_repeater/UITask.cpp
+@@ -1,3 +1,8 @@
++#ifdef V3_POCKET_REPEATER
++#include "UITask.h"
++#include "MyMesh.h"
++#include <PocketRepeaterUI.h>
++#else
+ #include "UITask.h"
+ #include "target.h"
+ #include <Arduino.h>
+@@ -148,3 +153,5 @@ void UITask::loop() {
+     }
+   }
+ }
++
++#endif
+diff --git a/examples/simple_repeater/UITask.h b/examples/simple_repeater/UITask.h
+index d8e3ce1..d7467a0 100644
+--- a/examples/simple_repeater/UITask.h
++++ b/examples/simple_repeater/UITask.h
+@@ -3,6 +3,10 @@
+ #include <helpers/ui/DisplayDriver.h>
+ #include <helpers/CommonCLI.h>
+ 
++#ifdef V3_POCKET_REPEATER
++#include <PocketVoltage.h>
++#endif
++
+ class UITask {
+   mesh::MainBoard* _board;
+   DisplayDriver* _display;
+@@ -13,6 +17,11 @@ class UITask {
+   unsigned long _powering_off_at = 0;
+   unsigned long _started_at = 0;
+ 
++#ifdef V3_POCKET_REPEATER
++  PocketVoltage battery;
++  bool repeaters = false;
++  bool scanHeldDisplay = false;
++#endif
+   void renderCurrScreen();
+ public:
+   UITask(mesh::MainBoard& board, DisplayDriver& display) : _board(&board), _display(&display) { _next_read = _next_refresh = 0; }
+diff --git a/examples/simple_repeater/main.cpp b/examples/simple_repeater/main.cpp
+index a714db6..59f80cb 100644
+--- a/examples/simple_repeater/main.cpp
++++ b/examples/simple_repeater/main.cpp
+@@ -73,7 +73,15 @@ void setup() {
+   fs = &InternalFS;
+   IdentityStore store(InternalFS, "");
+ #elif defined(ESP32)
++#if defined(V3_POCKET_REPEATER)
++  // This build updates an existing repeater. Keep its filesystem intact if mounting fails.
++  if (!SPIFFS.begin(false)) {
++    Serial.println("Unable to mount repeater settings");
++    halt();
++  }
++#else
+   SPIFFS.begin(true);
++#endif
+   fs = &SPIFFS;
+   IdentityStore store(SPIFFS, "/identity");
+ #elif defined(RP2040_PLATFORM)
+@@ -86,10 +94,18 @@ void setup() {
+ #endif
+   if (!store.load("_main", the_mesh.self_id)) {
+     MESH_DEBUG_PRINTLN("Generating new keypair");
++#ifdef V3_POCKET_REPEATER
++    Serial.println("Unable to load repeater identity");
++    halt();
++#endif
+     the_mesh.self_id = radio_new_identity();   // create new random identity
+     int count = 0;
+     while (count < 10 && (the_mesh.self_id.pub_key[0] == 0x00 || the_mesh.self_id.pub_key[0] == 0xFF)) {  // reserved id hashes
+-      the_mesh.self_id = radio_new_identity(); count++;
++  #ifdef V3_POCKET_REPEATER
++    Serial.println("Unable to load repeater identity");
++    halt();
++#endif
++    the_mesh.self_id = radio_new_identity(); count++;
+     }
+     store.save("_main", the_mesh.self_id);
+   }
+@@ -195,7 +211,11 @@ void loop() {
+ #ifdef HAS_EXTERNAL_WATCHDOG
+   external_watchdog.loop();
+ #endif
+-  if (the_mesh.getNodePrefs()->powersaving_enabled && !the_mesh.hasPendingWork()) {
++  if (the_mesh.getNodePrefs()->powersaving_enabled && !the_mesh.hasPendingWork()
++#ifdef V3_POCKET_REPEATER
++      && !display.isOn()
++#endif
++  ) {
+ #if defined(NRF52_PLATFORM)
+     board.sleep(0); // nrf ignores seconds param, sleeps whenever possible
+ #else
+diff --git a/src/helpers/ui/SSD1306Display.cpp b/src/helpers/ui/SSD1306Display.cpp
+index ab2d77f..965c9b4 100644
+--- a/src/helpers/ui/SSD1306Display.cpp
++++ b/src/helpers/ui/SSD1306Display.cpp
+@@ -25,7 +25,13 @@ bool SSD1306Display::begin() {
+   #ifdef DISPLAY_ROTATION
+   display.setRotation(DISPLAY_ROTATION);
+   #endif
+-  return display.begin(SSD1306_SWITCHCAPVCC, DISPLAY_ADDRESS, true, false) && i2c_probe(Wire, DISPLAY_ADDRESS);
++  if (!display.begin(SSD1306_SWITCHCAPVCC, DISPLAY_ADDRESS, true, false) || !i2c_probe(Wire, DISPLAY_ADDRESS)) return false;
++#ifdef POCKET_OLED_CONTRAST
++  static_assert(POCKET_OLED_CONTRAST >= 0 && POCKET_OLED_CONTRAST <= 255, "SSD1306 contrast must fit one byte");
++  display.ssd1306_command(SSD1306_SETCONTRAST);
++  display.ssd1306_command(POCKET_OLED_CONTRAST);
++#endif
++  return true;
+ }
+ 
+ void SSD1306Display::turnOn() {
+diff --git a/variants/heltec_v3/platformio.ini b/variants/heltec_v3/platformio.ini
+index 65e636e..384cfd1 100644
+--- a/variants/heltec_v3/platformio.ini
++++ b/variants/heltec_v3/platformio.ini
+@@ -375,3 +375,11 @@ lib_deps =
+ extends = Heltec_lora32_v3
+ build_src_filter = ${Heltec_lora32_v3.build_src_filter}
+   +<../examples/kiss_modem/>
++
++[env:Heltec_v3_repeater_pocket]
++extends = env:Heltec_v3_repeater
++build_flags =
++  ${env:Heltec_v3_repeater.build_flags}
++  -D V3_POCKET_REPEATER
++  -D POCKET_OLED_CONTRAST=0x58
++  -D FIRMWARE_VERSION='"${sysenv.V3_POCKET_VERSION}"'
+diff --git a/variants/heltec_v3/target.cpp b/variants/heltec_v3/target.cpp
+index e6af466..b7a6871 100644
+--- a/variants/heltec_v3/target.cpp
++++ b/variants/heltec_v3/target.cpp
+@@ -25,8 +25,12 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
+ 
+ #ifdef DISPLAY_CLASS
+   DISPLAY_CLASS display;
++#ifdef V3_POCKET_REPEATER
++  MomentaryButton user_btn(PIN_USER_BTN, 1000, true, false, false);
++#else
+   MomentaryButton user_btn(PIN_USER_BTN, 1000, true);
+ #endif
++#endif
+ 
+ bool radio_init() {
+   fallback_clock.begin();

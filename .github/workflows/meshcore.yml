@@ -1,0 +1,60 @@
+name: MeshCore compatibility
+on:
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: v3-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  select:
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.pin.outputs.tag }}
+      commit: ${{ steps.pin.outputs.commit }}
+      pinned: ${{ steps.pin.outputs.pinned }}
+      updates: ${{ steps.pin.outputs.updates }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Test the draft-PR workflow against a local Git repository
+        run: python3 tests/proposal.py
+      - run: python3 tests/releases.py
+      - id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: python3 .github/select_release.py
+
+  pinned:
+    needs: select
+    if: needs.select.outputs.pinned == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      tag: ${{ needs.select.outputs.tag }}
+      commit: ${{ needs.select.outputs.commit }}
+
+  updates:
+    needs: select
+    if: needs.select.outputs.updates != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ${{ fromJSON(needs.select.outputs.updates) }}
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/review.yml
+    with:
+      tag: ${{ matrix.release.tag }}
+      commit: ${{ matrix.release.commit }}

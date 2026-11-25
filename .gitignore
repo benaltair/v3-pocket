@@ -1,0 +1,6 @@
+builds/
+__pycache__/
+.pio/
+.DS_Store
+*.local.json
+*.enc
