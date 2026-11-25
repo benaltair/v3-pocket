@@ -52,6 +52,20 @@ def checked_files(directory):
     return version, pin["tag"], [path] + [path.parent / name for name in hashes]
 
 
+def release_notes(repo, version, upstream):
+    commit = json.loads(Path("upstream.json").read_text())["commit"]
+    base = "https://github.com/" + repo + "/releases/download/" + version + "/"
+    filename = f"heltec-v3-repeater-{version}-app.bin"
+    stock_name = f"Heltec_v3_repeater-{upstream.removeprefix('repeater-')}-{commit[:7]}.bin"
+    urls = output("gh", "api", "repos/meshcore-dev/MeshCore/releases/tags/" + upstream,
+                  "--jq", ".assets[].browser_download_url").splitlines()
+    url = f"https://github.com/meshcore-dev/MeshCore/releases/download/{upstream}/{stock_name}"
+    stock = 'Download the [official repeater application BIN]({url}) for {upstream} and repeat steps 1–3 with that file.' if url in urls else 'Select the stock Heltec v3 repeater firmware in the official web flasher.'
+    return (Path(__file__).with_name("release-notes.md").read_text().format(
+        download_url=base + filename, filename=filename, repo=repo, manifest_url=base + "manifest.json",
+        stock_instruction=stock.format(url=url, upstream=upstream)).rstrip() + "\n\n" + MARKER + "\n")
+
+
 def publish(directory, repo, commit):
     version, upstream, files = checked_files(directory)
     release = release_info(repo, version)
@@ -72,10 +86,7 @@ def publish(directory, repo, commit):
         print("A newer main commit will publish its build.")
         return
     if not release:
-        notes = (f"Public-default **{PROJECT}** firmware, based on MeshCore `{upstream}`.\n\n"
-                 "Use the `-app.bin` for the firmware update on a Heltec WiFi LoRa 32 V3 repeater with the compatible 8 MB dual-OTA layout.\n\n"
-                 f"The checksums are in `manifest.json`. [Device quick start]"
-                 f"(https://github.com/{repo}/blob/{commit}/README.md#quick-start)\n\n{MARKER}\n")
+        notes = release_notes(repo, version, upstream)
         with tempfile.TemporaryDirectory() as tmp:
             body = Path(tmp) / "notes.md"
             body.write_text(notes)

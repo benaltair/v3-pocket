@@ -14,6 +14,12 @@ Download the **`-app.bin`** and `manifest.json` from the [latest V3 Pocket relea
 
 The initial release is based on MeshCore `repeater-v1.17.1`. This Pocket UI revision was tested on a physical V3. The screen previews use simulated readings. [Upstream repeater commands](https://github.com/meshcore-dev/MeshCore/blob/d92964352441e53b93e8667b802e04f6e072b39e/docs/cli_commands.md#start-an-over-the-air-ota-firmware-update)
 
+## Roll back to stock
+
+The [latest Pocket release](https://github.com/benaltair/v3-pocket/releases/latest) links to the matching stock MeshCore V3 repeater application BIN when available. Back up the repeater and repeat the `start ota` steps above using the stock application. OTA accepts the plain application `.bin`. A `-merged.bin` includes other flash regions and must stay out of that upload.
+
+For a USB rollback, choose **Heltec v3 → Repeater** in the [official MeshCore flasher](https://flasher.meshcore.io/) and leave **Erase device** unchecked. After reboot, check the public identity and radio settings.
+
 ## The packet graph
 
 ![Two OLED Home screens with simulated traffic. The quiet graph is blank. Bars on the busy graph show when packets arrived.](docs/traffic.png)
